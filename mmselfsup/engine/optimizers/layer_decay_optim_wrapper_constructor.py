@@ -1,19 +1,19 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import json
-from typing import Dict, List, Optional, Union
+from typing import List
 
 import torch
 from mmengine.dist import get_dist_info
+from mmengine.logging import print_log
 from mmengine.optim import DefaultOptimWrapperConstructor
 from torch import nn
 
 from mmselfsup.registry import (OPTIM_WRAPPER_CONSTRUCTORS, OPTIM_WRAPPERS,
                                 OPTIMIZERS)
-from mmselfsup.utils import get_root_logger
 
 
 def get_layer_id_for_vit(var_name: str, max_layer_id: int) -> int:
-    """Get the layer id to set the different learning rates.
+    """Get the layer id to set the different learning rates for ViT.
 
     Args:
         var_name (str): The key of the model.
@@ -36,7 +36,7 @@ def get_layer_id_for_vit(var_name: str, max_layer_id: int) -> int:
 
 def get_layer_id_for_swin(var_name: str, max_layer_id: int,
                           depths: List[int]) -> int:
-    """Get the layer id to set the different learning rates.
+    """Get the layer id to set the different learning rates for Swin.
 
     Args:
         var_name (str): The key of the model.
@@ -65,14 +65,16 @@ class LearningRateDecayOptimWrapperConstructor(DefaultOptimWrapperConstructor):
     """Different learning rates are set for different layers of backbone.
 
     Note: Currently, this optimizer constructor is built for ViT and Swin.
+
+    In addition to applying layer-wise learning rate decay schedule, this
+    module will not apply weight decay to ``normalization parameters``,
+    ``bias``, ``position embedding``, ``class token``, and
+    ``relative position bias table, automatically. What's more, the
+    ``paramwise_cfg`` in the base module will be ignored.
     """
 
-    def add_params(self,
-                   params: List[dict],
-                   module: nn.Module,
-                   optimizer_cfg: Dict,
-                   prefix: str = '',
-                   is_dcn_module: Optional[Union[int, float]] = None) -> None:
+    def add_params(self, params: List[dict], module: nn.Module,
+                   optimizer_cfg: dict, **kwargs) -> None:
         """Add all parameters of module to the params list.
 
         The parameters of the given module will be added to the list of param
@@ -88,7 +90,6 @@ class LearningRateDecayOptimWrapperConstructor(DefaultOptimWrapperConstructor):
                 submodule of DCN, `is_dcn_module` will be passed to
                 control conv_offset layer's learning rate. Defaults to None.
         """
-        logger = get_root_logger()
 
         model_type = optimizer_cfg.pop('model_type', None)
         # model_type should not be None
@@ -113,6 +114,8 @@ class LearningRateDecayOptimWrapperConstructor(DefaultOptimWrapperConstructor):
         for name, param in module.named_parameters():
             if not param.requires_grad:
                 continue  # frozen weights
+            # will not decay normalization params, bias, position embedding
+            # class token, relative position bias table
             if len(param.shape) == 1 or name.endswith('.bias') or name in (
                     'backbone.pos_embed', 'backbone.cls_token'):
                 group_name = 'no_decay'
@@ -153,7 +156,7 @@ class LearningRateDecayOptimWrapperConstructor(DefaultOptimWrapperConstructor):
                     'lr': parameter_groups[key]['lr'],
                     'weight_decay': parameter_groups[key]['weight_decay'],
                 }
-            logger.info(f'Param groups = {json.dumps(to_display, indent=2)}')
+            print_log(f'Param groups = {json.dumps(to_display, indent=2)}')
         params.extend(parameter_groups.values())
 
     def __call__(self, model: nn.Module) -> torch.optim.Optimizer:
