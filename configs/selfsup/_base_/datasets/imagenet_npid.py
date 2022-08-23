@@ -2,7 +2,17 @@
 custom_imports = dict(imports='mmcls.datasets', allow_failed_imports=False)
 dataset_type = 'mmcls.ImageNet'
 data_root = 'data/imagenet/'
-file_client_args = dict(backend='disk')
+# file_client_args = dict(backend='disk')
+file_client_args = dict(
+backend='petrel',
+path_mapping= dict({
+ '.data/imagenet/':
+'sproject:s3://openmmlab/datasets/classification/imagenet/',
+ 'data/imagenet/':
+ 'sproject:s3://openmmlab/datasets/classification/imagenet/'
+ }))
+
+
 
 train_pipeline = [
     dict(type='LoadImageFromFile', file_client_args=file_client_args),
@@ -31,7 +41,7 @@ train_dataloader = dict(
     num_workers=8,
     drop_last=True,
     persistent_workers=True,
-    sampler=dict(type='DefaultSampler', shuffle=True),
+    sampler=dict(type='NPIDSampler', shuffle=True),
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
